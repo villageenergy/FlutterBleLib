@@ -25,11 +25,8 @@ apply plugin: 'com.android.application'
 apply from: "$flutterRoot/packages/flutter_tools/gradle/flutter.gradle"
 
 android {
-    compileSdkVersion 28
+    compileSdkVersion 31
 
-    lintOptions {
-        disable 'InvalidPackage'
-    }
 
     defaultConfig {
         applicationId "com.polidea.flutter_ble_lib_example"
@@ -56,6 +53,9 @@ android {
             // available in the dependency.
             matchingFallbacks = ['debug', 'release']
         }
+    }
+    lint {
+        disable 'InvalidPackage'
     }
 }
 
