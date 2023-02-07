@@ -2,6 +2,8 @@ package com.polidea.flutter_ble_lib;
 
 import android.content.Context;
 import android.util.Log;
+import android.app.Application;
+import android.app.Activity;
 
 import com.polidea.flutter_ble_lib.constant.ArgumentKey;
 import com.polidea.flutter_ble_lib.constant.ChannelName;
@@ -27,22 +29,29 @@ import com.polidea.multiplatformbleadapter.OnErrorCallback;
 import com.polidea.multiplatformbleadapter.OnEventCallback;
 import com.polidea.multiplatformbleadapter.ScanResult;
 import com.polidea.multiplatformbleadapter.errors.BleError;
-
 import java.util.LinkedList;
 import java.util.List;
 
 import androidx.annotation.NonNull;
+import androidx.core.app.ActivityCompat;
+
+import io.flutter.embedding.engine.plugins.FlutterPlugin;
 import io.flutter.plugin.common.EventChannel;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
 import io.flutter.plugin.common.PluginRegistry.Registrar;
+import io.flutter.plugin.common.BinaryMessenger;
+import io.flutter.plugin.common.PluginRegistry;
+// import io.flutter.plugins.GeneratedPluginRegistrant;
+import io.flutter.embedding.engine.plugins.activity.ActivityAware;
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding;
 
-public class FlutterBleLibPlugin implements MethodCallHandler {
+public class FlutterBleLibPlugin implements FlutterPlugin, ActivityAware, MethodCallHandler {
+    // public class FlutterBleLibPlugin implements MethodCallHandler{
 
     static final String TAG = FlutterBleLibPlugin.class.getName();
-
     private BleAdapter bleAdapter;
     private Context context;
     private AdapterStateStreamHandler adapterStateStreamHandler = new AdapterStateStreamHandler();
@@ -53,28 +62,148 @@ public class FlutterBleLibPlugin implements MethodCallHandler {
 
     private List<CallDelegate> delegates = new LinkedList<>();
 
-    public static void registerWith(Registrar registrar) {
-        final MethodChannel channel = new MethodChannel(registrar.messenger(), ChannelName.FLUTTER_BLE_LIB);
+    private MethodChannel channel;
 
-        final EventChannel bluetoothStateChannel = new EventChannel(registrar.messenger(), ChannelName.ADAPTER_STATE_CHANGES);
-        final EventChannel restoreStateChannel = new EventChannel(registrar.messenger(), ChannelName.STATE_RESTORE_EVENTS);
-        final EventChannel scanningChannel = new EventChannel(registrar.messenger(), ChannelName.SCANNING_EVENTS);
-        final EventChannel connectionStateChannel = new EventChannel(registrar.messenger(), ChannelName.CONNECTION_STATE_CHANGE_EVENTS);
-        final EventChannel characteristicMonitorChannel = new EventChannel(registrar.messenger(), ChannelName.MONITOR_CHARACTERISTIC);
+    EventChannel bluetoothStateChannel;
+    EventChannel restoreStateChannel;
+    EventChannel scanningChannel;
+    EventChannel connectionStateChannel;
+    EventChannel characteristicMonitorChannel;
 
-        final FlutterBleLibPlugin plugin = new FlutterBleLibPlugin(registrar.context());
+    private Object initializationLock = new Object();
+    private ActivityPluginBinding activityBinding;
+    private Activity activity;
+    private FlutterPluginBinding pluginBinding;
+    private Application application;
 
-        channel.setMethodCallHandler(plugin);
-
-        scanningChannel.setStreamHandler(plugin.scanningStreamHandler);
-        bluetoothStateChannel.setStreamHandler(plugin.adapterStateStreamHandler);
-        restoreStateChannel.setStreamHandler(plugin.restoreStateStreamHandler);
-        connectionStateChannel.setStreamHandler(plugin.connectionStateStreamHandler);
-        characteristicMonitorChannel.setStreamHandler(plugin.characteristicsMonitorStreamHandler);
+    @Override
+    public void onAttachedToEngine(@NonNull FlutterPluginBinding flutterPluginBinding) {
+        // onAttach(flutterPluginBinding.getApplicationContext(),flutterPluginBinding.getBinaryMessenger());
+        channel = new MethodChannel(flutterPluginBinding.getFlutterEngine().getDartExecutor(), "flutter_ble_lib");
+        channel.setMethodCallHandler(this);
+        context = flutterPluginBinding.getApplicationContext();
+        pluginBinding = flutterPluginBinding;
     }
 
-    private FlutterBleLibPlugin(Context context) {
-        this.context = context;
+    // private void onAttach(Context applicationContext, BinaryMessenger messenger)
+    // {
+    // context = applicationContext;
+    // channel = new MethodChannel(messenger, "com.myplugin/my_plugin");
+    // channel.setMethodCallHandler(this);
+    // }
+
+    @Override
+    public void onAttachedToActivity(ActivityPluginBinding binding) {
+        activityBinding = binding;
+        setup(
+                pluginBinding.getBinaryMessenger(),
+                (Application) pluginBinding.getApplicationContext(),
+                activityBinding.getActivity(),
+                null,
+                activityBinding);
+    }
+
+    @Override
+    public void onDetachedFromActivity() {
+        // tearDown(); //TODO:
+    }
+
+    @Override
+    public void onDetachedFromActivityForConfigChanges() {
+        onDetachedFromActivity();
+    }
+
+    @Override
+    public void onReattachedToActivityForConfigChanges(ActivityPluginBinding binding) {
+        onAttachedToActivity(binding);
+    }
+
+    public static void registerWith(Registrar registrar) {
+        final FlutterBleLibPlugin instance = new FlutterBleLibPlugin();
+        Activity activity = registrar.activity();
+        Application application = null;
+
+        if (registrar.context() != null) {
+            application = (Application) (registrar.context().getApplicationContext());
+        }
+        instance.setup(registrar.messenger(), application, activity, registrar, null);
+    }
+
+    private void setup(
+            final BinaryMessenger messenger,
+            final Application application,
+            final Activity activity,
+            final PluginRegistry.Registrar registrar,
+            final ActivityPluginBinding activityBinding) {
+        synchronized (initializationLock) {
+            Log.i(TAG, "setup");
+            this.activity = activity;
+            this.application = application;
+            this.context = application;
+
+            channel = new MethodChannel(messenger, ChannelName.FLUTTER_BLE_LIB);
+            channel.setMethodCallHandler(this);
+
+            bluetoothStateChannel = new EventChannel(messenger,
+                    ChannelName.ADAPTER_STATE_CHANGES);
+            restoreStateChannel = new EventChannel(messenger,
+                    ChannelName.STATE_RESTORE_EVENTS);
+            scanningChannel = new EventChannel(messenger, ChannelName.SCANNING_EVENTS);
+            connectionStateChannel = new EventChannel(messenger,
+                    ChannelName.CONNECTION_STATE_CHANGE_EVENTS);
+            characteristicMonitorChannel = new EventChannel(messenger,
+                    ChannelName.MONITOR_CHARACTERISTIC);
+
+            scanningChannel.setStreamHandler(scanningStreamHandler);
+            bluetoothStateChannel.setStreamHandler(adapterStateStreamHandler);
+            restoreStateChannel.setStreamHandler(restoreStateStreamHandler);
+            connectionStateChannel.setStreamHandler(connectionStateStreamHandler);
+            characteristicMonitorChannel.setStreamHandler(characteristicsMonitorStreamHandler);
+
+            // if (registrar != null) {
+            //     // V1 embedding setup for activity listeners.
+            //     registrar.addRequestPermissionsResultListener(this);
+            // } else {
+            //     // V2 embedding setup for activity listeners.
+            //     activityBinding.addRequestPermissionsResultListener(this);
+            // }
+        }
+    }
+
+    // public static void registerWith(Registrar registrar) {
+    // final MethodChannel channel = new MethodChannel(registrar.messenger(),
+    // ChannelName.FLUTTER_BLE_LIB);
+
+    // final EventChannel bluetoothStateChannel = new
+    // EventChannel(registrar.messenger(),
+    // ChannelName.ADAPTER_STATE_CHANGES);
+    // final EventChannel restoreStateChannel = new
+    // EventChannel(registrar.messenger(),
+    // ChannelName.STATE_RESTORE_EVENTS);
+    // final EventChannel scanningChannel = new EventChannel(registrar.messenger(),
+    // ChannelName.SCANNING_EVENTS);
+    // final EventChannel connectionStateChannel = new
+    // EventChannel(registrar.messenger(),
+    // ChannelName.CONNECTION_STATE_CHANGE_EVENTS);
+    // final EventChannel characteristicMonitorChannel = new
+    // EventChannel(registrar.messenger(),
+    // ChannelName.MONITOR_CHARACTERISTIC);
+
+    // final FlutterBleLibPlugin plugin = new FlutterBleLibPlugin();
+    // // final FlutterBleLibPlugin plugin = new
+    // // FlutterBleLibPlugin(registrar.context());
+
+    // channel.setMethodCallHandler(plugin);
+
+    // scanningChannel.setStreamHandler(plugin.scanningStreamHandler);
+    // bluetoothStateChannel.setStreamHandler(plugin.adapterStateStreamHandler);
+    // restoreStateChannel.setStreamHandler(plugin.restoreStateStreamHandler);
+    // connectionStateChannel.setStreamHandler(plugin.connectionStateStreamHandler);
+    // characteristicMonitorChannel.setStreamHandler(plugin.characteristicsMonitorStreamHandler);
+    // }
+
+    public FlutterBleLibPlugin() {
+        // this.context = context;
     }
 
     private void setupAdapter(Context context) {
@@ -130,7 +259,8 @@ public class FlutterBleLibPlugin implements MethodCallHandler {
 
     private void createClient(MethodCall call, Result result) {
         if (bleAdapter != null) {
-            Log.w(TAG, "Overwriting existing native client. Use BleManager#isClientCreated to check whether a client already exists.");
+            Log.w(TAG,
+                    "Overwriting existing native client. Use BleManager#isClientCreated to check whether a client already exists.");
         }
         setupAdapter(context);
         bleAdapter.createClient(call.<String>argument(ArgumentKey.RESTORE_STATE_IDENTIFIER),
@@ -191,5 +321,11 @@ public class FlutterBleLibPlugin implements MethodCallHandler {
             bleAdapter.cancelTransaction(call.<String>argument(ArgumentKey.TRANSACTION_ID));
         }
         result.success(null);
+    }
+
+    @Override
+    public void onDetachedFromEngine(@NonNull FlutterPluginBinding binding) {
+        channel.setMethodCallHandler(null);
+        pluginBinding  = binding;
     }
 }
