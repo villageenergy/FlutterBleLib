@@ -145,7 +145,7 @@ class Peripheral {
   /// Will result in error if discovery was not done during this connection.
   Future<Characteristic> writeCharacteristic(
     String serviceUuid,
-    String characteristicUuid,
+    String? characteristicUuid,
     Uint8List value,
     bool withResponse, {
     String? transactionId,
@@ -153,7 +153,7 @@ class Peripheral {
       _manager.writeCharacteristicForDevice(
         this,
         serviceUuid,
-        characteristicUuid,
+        characteristicUuid!,
         value,
         withResponse,
         transactionId ?? TransactionIdGenerator.getNextId(),
